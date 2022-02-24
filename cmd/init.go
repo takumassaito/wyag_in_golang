@@ -6,40 +6,37 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
-	"os"
 	"log"
+	"os"
+
 	"github.com/bigkevmcd/go-configparser"
+	"github.com/spf13/cobra"
 )
 
 type initStruct struct {
-	path string
+	path   string
 	gitdir string
-	conf *configparser.ConfigParser
+	conf   *configparser.ConfigParser
 }
 
 func (init initStruct) New(path string) {
 	init.path = path
-	init.gitdir = path + ".git"
-	_, err := os.Stat(init.gitdir)
-	if err != nil{
-		fmt.Printf("Not a Git repository %s",path)
-		log.Fatal(err)
-	}
+	init.gitdir = path + "/.git"
+
 	//Read configuration file in .git/config
 	cf := repo_file(init, "config")
 	_, Is_cf := os.Stat(cf)
-	if Is_cf == nil{
+	if Is_cf == nil {
 		init.conf, _ = configparser.NewConfigParserFromFile(cf)
-	}else{
+	} else {
 		//コンフィグファイルが見つからない場合エラー停止する
 		log.Fatal(Is_cf)
 	}
 }
-func repo_file (init initStruct, path string) string {
+func repo_file(init initStruct, path string) string {
 	//create dirname(path) if absent.
-	dir_result, path := repo_dir(init, path)
-	if dir_result{
+	dir_result, _ := repo_dir(init, path)
+	if dir_result {
 		return repo_path(init, path)
 	}
 	//path先がディレクトリではない場合エラーで停止する
@@ -47,27 +44,27 @@ func repo_file (init initStruct, path string) string {
 	return path
 }
 
-func repo_dir(init initStruct, path string) (bool,string){
+func repo_dir(init initStruct, path string) (bool, string) {
 	//mkdir path if absent if mkdir
 	path = repo_path(init, path)
 
 	path_stat, err := os.Stat(path)
-	
+
 	//path先が存在しない場合はディレクトリを作って返す
-	if err == nil{
-		if path_stat.IsDir(){
-			return true,path
-		}else{
-			return false,"Not a directory" + path
+	if err == nil {
+		if path_stat.IsDir() {
+			return true, path
+		} else {
+			return false, "Not a directory" + path
 		}
 	}
 
-	_ = os.MkdirAll(path,0777)
-	return true,path
+	_ = os.MkdirAll(path, 0777)
+	return true, path
 }
 
 func repo_path(init initStruct, path string) string {
-	return init.gitdir + path
+	return init.gitdir + "/" + path
 }
 
 // initCmd represents the init command
@@ -83,7 +80,7 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		//構造体の宣言
 		var test initStruct
-		test.New(os.Args[1])
+		test.New(os.Args[2])
 
 		fmt.Println("init called")
 	},
