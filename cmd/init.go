@@ -30,6 +30,7 @@ func New(path string, init initStruct) *initStruct {
 	//configがあれば読み取る
 	if Is_cf == nil {
 		init.conf, _ = configparser.NewConfigParserFromFile(cf)
+		fmt.Println(init.conf)
 	} else {
 		//コンフィグファイルが見つからない場合エラー停止する
 		// log.Fatal(Is_cf)
@@ -39,42 +40,48 @@ func New(path string, init initStruct) *initStruct {
 	return &init
 }
 func repo_file(init initStruct, path string, mkdir bool) string {
-	//create dirname(path) if absent.
-	dir_bool, _ := repo_dir(init, path, mkdir)
-	if dir_bool {
+	//mkdirがtrueかつ指定したPATHにディレクトリが存在しない場合は、
+	//ディレクトリを作成してnew_pathにディレクトリPATHを返す（ディレクトリ作成時の動作）
+	//mkdirがfalseならばnew_pathにはファイルPATHのみ作成して返す（ファイル作成時の動作）
+	new_path := repo_dir(init, path, mkdir)
+
+	if len(new_path) != 0 {
 		return repo_path(init, path)
-	} else {
-		//path先がディレクトリではない場合エラーで停止する
-		log.Fatal(path)
-		return path
 	}
 
+	return ""
 }
 
-func repo_dir(init initStruct, path string, mkdir bool) (bool, string) {
+func repo_dir(init initStruct, path string, mkdir bool) string {
 	//mkdir path if absent if mkdir
 	path = repo_path(init, path)
 
 	path_stat, err := os.Stat(path)
 
-	//path先が存在しない場合はディレクトリを作って返す
 	if err == nil {
 		if path_stat.IsDir() {
-			return true, path
+			return path
 		} else {
-			return false, "Not a directory" + path
+			//mkdirがtrueかつ指定されたPATHがファイルとして存在する時に停止する
+			if mkdir {
+				fmt.Println("ファイルPATHを指定してディレクトリを作ろうとしています")
+				log.Fatal(path)
+			}
+
+		}
+	} else {
+		//path先が存在しない場合はディレクトリを作って返す
+		//ただし、mkdir=falseならばディレクトリを作らずパスのみリターン
+		if mkdir {
+			_ = os.MkdirAll(path, 0777)
 		}
 	}
-	//mkdir=falseならばディレクトリを作らずパスのみリターン
-	if mkdir {
-		_ = os.Mkdir(path, 0777)
-	}
-	return true, path
+	return path
 
 }
 
 func repo_path(init initStruct, path string) string {
-	//.gitディレクトリ配下に渡されたpath名でディレクトリを作成
+	//.gitディレクトリ配下へのPATHを作成して返す
 	return filepath.Join(init.gitdir, path)
 }
 
@@ -89,14 +96,14 @@ func repo_create(path string) {
 	if err == nil {
 		//PATHが見つかったがディレクトリではない時
 		if !repo_info.IsDir() {
-			fmt.Printf("%s is not a directory", repoed.path)
-			log.Fatal(path)
+			fmt.Printf("%s  is not a directory\n", repoed.path)
+			log.Fatal()
 		}
-		_, err := filepath.Glob(repo.path + "/*")
-		//ディレクトリ内にファイルが見つかった時
+		_, err := filepath.Glob(repo.path + "/*.")
+		//ディレクトリ内にファイルが見つかった時 できているか要確認！！！！！！！！！！！！！！！
 		if err != nil {
 			fmt.Printf("%s is not Empty!", repoed.path)
-			log.Fatal(path)
+			log.Fatal()
 		}
 		//PATHが通っていない時
 	} else {
@@ -105,6 +112,75 @@ func repo_create(path string) {
 		fmt.Println(repoed.path)
 		fmt.Println("コマンドライン引数に渡されたパスにディレクトリを作成しました")
 	}
+	//ディレクトリを作成するためmkdirにtrueを入れる
+	mkdir := true
+	//repoedは構造体へのポインタのため参照外し
+	//必要ディレクトリの作成
+	repo_dir(*repoed, "branches", mkdir)
+	repo_dir(*repoed, "objects", mkdir)
+	repo_dir(*repoed, "refs", mkdir)
+	repo_dir(*repoed, "refs/tags", mkdir)
+	repo_dir(*repoed, "refs/heads", mkdir)
+
+	//.git/descriptionの作成
+	file_des, err := os.OpenFile(repo_file(*repoed, "description", false), os.O_RDWR|os.O_CREATE, 0666)
+	file_write_check(err)
+	defer file_des.Close()
+	fmt.Fprint(file_des, "Unnamed repository; edit this file 'description' to name the repository.\n")
+
+	//.git/HEADの作成
+	file_head, err2 := os.OpenFile(repo_file(*repoed, "HEAD", false), os.O_RDWR|os.O_CREATE, 0666)
+	file_write_check(err2)
+	defer file_head.Close()
+	fmt.Fprint(file_head, "ref: refs/heads/master\n")
+
+	config := repo_default_config()
+	config.SaveWithDelimiter(repo_file(*repoed, "config", false), "=")
+
+}
+
+func file_write_check(err error) {
+	if err != nil {
+		fmt.Println("ファイルの書き込みにエラーが発生しました")
+		log.Fatal(err)
+	}
+}
+
+func repo_default_config() *configparser.ConfigParser {
+	config_parser := configparser.New()
+
+	config_parser.AddSection("core")
+	config_parser.Set("core", "repositoryformatversion", "0")
+	config_parser.Set("core", "filemode", "false")
+	config_parser.Set("core", "bare", "false")
+
+	return config_parser
+}
+
+//ルートディレクトリまで再帰的に.gitディレクトリを探す
+func repo_find(path string) string {
+
+	git_dir_path := filepath.Join(path, ".git")
+
+	path_info, err := os.Stat(git_dir_path)
+
+	if err == nil {
+		if path_info.IsDir() {
+			//.gitディレクトリが見つかったら親ディレクトリを返す
+			//initStructの初期化に使われるのが.gitの親ディレクトリのため
+			return filepath.Join(git_dir_path, "..")
+		}
+	}
+
+	parent := filepath.Join(path, "..")
+
+	if parent == path {
+		fmt.Println("No git directory")
+		return ""
+	}
+	recursived_path := repo_find(parent)
+
+	return recursived_path
 
 }
 
@@ -119,8 +195,16 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		//実行ファイルのPATHを取得
+		path := os.Args[2]
+		//repo_findで.gitディレクトリが見つかれがそのPATHを渡し、見つからなければ与えられた引数で作成
+		exit_git_path := repo_find(path)
+		if len(exit_git_path) != 0 {
+			fmt.Println(".gitディレクトリが見つかりました")
+			repo_create(exit_git_path)
+			return
+		}
 		repo_create(os.Args[2])
-		fmt.Println("init called")
 	},
 }
 
